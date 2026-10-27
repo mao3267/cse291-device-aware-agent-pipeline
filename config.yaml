@@ -1,0 +1,26 @@
+# Single source of truth for paths. Scripts resolve everything through this file.
+paths:
+  data_root: /data
+  models: /data/models
+  datasets: /data/datasets
+  runs: /data/runs
+  scratch: /data/scratch
+  hf_home: /data/scratch/hf-cache   # download cache, safe to delete
+
+python: /home/wuklab/ph1/bin/python
+
+models:
+  embed: bge_small_en_v15_ov_fp16        # S1, BAAI/bge-small-en-v1.5
+  rerank: bge_reranker_base_ov_fp16      # S2, BAAI/bge-reranker-base
+  llm: qwen25_1_5b_ov_int4_sym_cw        # S3, Qwen/Qwen2.5-1.5B-Instruct, INT4 sym channel-wise
+  llm_sensitivity: null                  # 3B INT4 sym — not exported yet
+
+datasets:
+  squad_raw: rag-squad/raw/plain_text
+  hotpot_raw: rag-hotpotqa/raw/distractor
+  corpus: rag-corpus/v1
+
+corpus:
+  seed: 0
+  n_squad_dev_questions: 500     # development
+  n_hotpot_questions: 500        # held-out evaluation
