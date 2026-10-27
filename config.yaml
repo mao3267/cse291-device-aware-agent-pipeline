@@ -1,12 +1,13 @@
 # Single source of truth for paths. Scripts resolve everything through this file.
-paths:                 # relative paths resolve against the project root
-  models: models
-  datasets: datasets
-  runs: runs
-  scratch: scratch
-  hf_home: cache/hf    # HF download cache, safe to delete
+paths:                 # everything lives inside the project folder
+  root: /data/project-01
+  models: /data/project-01/models
+  datasets: /data/project-01/datasets
+  runs: /data/project-01/runs
+  scratch: /data/project-01/scratch
+  hf_home: /data/project-01/cache/hf    # HF download cache, safe to delete
 
-python: .venv/bin/python
+python: /data/project-01/.venv/bin/python
 
 models:
   embed: bge_small_en_v15_ov_fp16        # S1, BAAI/bge-small-en-v1.5

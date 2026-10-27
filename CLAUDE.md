@@ -124,11 +124,12 @@ on 2026-10-27 (same filesystem, plain `mv`; contents unchanged).
 
 | Path | What |
 |---|---|
-| `config.yaml` | All paths (relative to project root), model names, dataset locations, corpus params. Scripts read only this. |
+| `config.yaml` | All paths (absolute, all under `/data/project-01`), model names, dataset locations, corpus params. Scripts read only this. |
 | `scripts/build_corpus.py` | Raw SQuAD/HotpotQA → `rag-corpus/<ver>`. Refuses to overwrite. |
 
-- Resolve paths in code only through `config.yaml`, as `ROOT / cfg["paths"][...]`
-  with `ROOT` = project root. Do not hardcode `/data/...` paths in scripts.
+- Resolve paths in code only through `config.yaml` (`cfg["paths"][...]`, `cfg["python"]`).
+  Do not hardcode `/data/...` paths in scripts. Every path in `config.yaml` must
+  point inside `/data/project-01/`.
 - This directory is a **standalone git repo** (initialized 2026-10-27, branch `main`,
   no remote yet), separate from `edge-ai`. Use the global commit prefixes
   (`docs:` `scripts:` `configs:` `exp:` `fix:` `chore:` `paper:`), one per commit.
