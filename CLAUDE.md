@@ -8,6 +8,14 @@ to the global file.
 describes — models, datasets, env, code layout, findings, TODOs, disk state —
 update this file in the same step. Do not leave it stale.
 
+**Self-contained rule (from the user, 2026-10-27):** every file this project
+creates or uses lives **inside `/data/project-01/`**: code, models, datasets,
+the Python venv, HF caches, run outputs, scratch. Do not write project files to
+`/data/models`, `/data/datasets`, `/data/envs`, `/data/runs`, `/data/scratch`,
+`~/.cache` or `/home/wuklab`. This overrides the global `/data` layout table.
+Set `HF_HOME=/data/project-01/cache/hf` for any Hugging Face download or export,
+so nothing lands in `~/.cache/huggingface`.
+
 ---
 
 ## Project
@@ -27,18 +35,23 @@ update this file in the same step. Do not leave it stale.
 - iGPU compute **is** installed (Level Zero + OpenCL, `intel-opencl-icd 26.18`).
 - NPU user-space **is** installed (`intel-level-zero-npu 1.33`). OpenVINO lists CPU, GPU, NPU.
 - Disk: `/` is **99% full (~8.6 GB free, 2026-10-27)**. Check `df -h /` before any download or export.
-  `/data/scratch` holds ~64 GB (pre-existing, not yet reviewed) — the obvious place to reclaim space.
+  `/data/scratch` holds ~64 GB (pre-existing, not yet reviewed, not this project's) — the obvious
+  place to reclaim space, but ask the user before clearing it.
 
 ## Environment
 
-- Python venv: **`/home/wuklab/ph1`** (OpenVINO / GenAI / tokenizers 2026.4.1,
+- Python venv: **`/data/project-01/.venv`** (OpenVINO / GenAI / tokenizers 2026.4.1,
   optimum-intel 2.2.0, nncf 3.4.0, transformers 5.5.4, datasets 5.0.1).
-  Use `/home/wuklab/ph1/bin/python`; do not install into other envs in `/data/envs/`.
+  Use `.venv/bin/python`; do not install into envs in `/data/envs/`.
+  Moved from `/home/wuklab/ph1` on 2026-10-27 (shebangs + `pyvenv.cfg` rewritten;
+  imports and `optimum-cli` verified). If it ever breaks, recreate it in place, not elsewhere.
 - Missing from ph1: `matplotlib` (needed for figures), `faiss-cpu` (optional —
   numpy brute force is enough at ~26k × 384), `evaluate` (EM/F1 can be hand-written).
   torch is the CUDA build (`+cu130`, ~3 GB wasted) — prefer CPU torch on rebuild.
 - llama.cpp: `/data/repos/llama.cpp/build-vulkan/bin` (Vulkan iGPU) and `build-cpu`.
-  **No NPU backend** — llama.cpp is a CPU/iGPU cross-check only.
+  **No NPU backend** — llama.cpp is a CPU/iGPU cross-check only. These shared
+  binaries are a read-only system tool (exception to the self-contained rule);
+  any GGUF files this project uses go in `models/`.
 
 ## Runtime rules
 
@@ -52,7 +65,8 @@ update this file in the same step. Do not leave it stale.
 
 ## Known status / findings
 
-- Qwen2.5-1.5B OV int8 (`/data/models/qwen25_1_5b_ov_int8`, asymmetric uint8 weights):
+- Qwen2.5-1.5B OV int8 (`/data/models/qwen25_1_5b_ov_int8` — a pre-existing shared export,
+  not part of this project; history only, asymmetric uint8 weights):
   CPU ✓ (0.5 s/16 tok), iGPU ✓ (0.3 s/16 tok), **NPU compiles but emits garbage**
   (OV 2026.3 and 2026.4.1).
 - **Fixed by symmetric INT4 channel-wise export** (`qwen25_1_5b_ov_int4_sym_cw`,
@@ -76,38 +90,45 @@ update this file in the same step. Do not leave it stale.
 
 ## Paths
 
-| What | Where |
-|---|---|
-| Project code + docs | `/data/project-01/` |
-| Model weights / exports | `/data/models/` (append only) |
-| Datasets | `/data/datasets/rag-<name>/` (append only) |
-| Experiment outputs | `/data/runs/<date>_<host>_p01-<name>/` (write-once, global run-folder recipe) |
-| Throwaway files | `/data/scratch/` (HF download cache: `/data/scratch/hf-cache`) |
+Everything is under `/data/project-01/`. Heavy state is gitignored.
+
+| What | Where (relative to project root) | Git | Rule |
+|---|---|---|---|
+| Code, docs, config | `scripts/`, `config.yaml`, `proposal.md`, `CLAUDE.md` | yes | normal commits |
+| Python venv | `.venv/` | no | recreate in place |
+| Model weights / exports | `models/<name>/` | no | append only; delete only with user confirmation |
+| Datasets | `datasets/rag-<name>/` | no | append only; rebuild = new version dir |
+| Experiment outputs | `runs/<date>_<host>_<name>/` | no | write-once (global run-folder recipe, with `RUN` under `runs/`) |
+| HF download cache | `cache/hf/` (`HF_HOME`) | no | safe to delete |
+| Throwaway files | `scratch/` | no | safe to delete |
 
 ### Artifacts on disk
 
-| Stage | Path (under `/data/models`) | Source |
+| Stage | Path (under `models/`) | Source |
 |---|---|---|
 | S1 embed | `bge_small_en_v15_ov_fp16` (66 MB) | BAAI/bge-small-en-v1.5, `feature-extraction`, CLS pooling |
 | S2 rerank | `bge_reranker_base_ov_fp16` (557 MB) | BAAI/bge-reranker-base, `text-classification` |
 | S3 generate | `qwen25_1_5b_ov_int4_sym_cw` (870 MB) | Qwen/Qwen2.5-1.5B-Instruct |
 
-Datasets (under `/data/datasets`): `rag-squad/raw` (SQuAD v1.1 train+dev parquet),
+Datasets (under `datasets/`): `rag-squad/raw` (SQuAD v1.1 train+dev parquet),
 `rag-hotpotqa/raw` (HotpotQA distractor dev parquet), `rag-corpus/v1` built by
 `scripts/build_corpus.py` (seed 0): **25,880 Wikipedia passages** (all SQuAD
 train+dev paragraphs + the 10 paragraphs of each sampled HotpotQA question),
 500 SQuAD-dev questions (1 gold pid each), 500 HotpotQA held-out questions
 (2 gold pids each). Hashes in `manifest.json`. Rebuild = new version dir, never overwrite.
 
+Models and datasets were moved here from `/data/models` and `/data/datasets`
+on 2026-10-27 (same filesystem, plain `mv`; contents unchanged).
+
 ### Code layout
 
 | Path | What |
 |---|---|
-| `config.yaml` | All paths, model names, dataset locations, corpus params. Scripts read only this. |
+| `config.yaml` | All paths (relative to project root), model names, dataset locations, corpus params. Scripts read only this. |
 | `scripts/build_corpus.py` | Raw SQuAD/HotpotQA → `rag-corpus/<ver>`. Refuses to overwrite. |
 
-- Resolve these in code from one place (e.g. a `config.yaml` at project root);
-  do not scatter hardcoded `/data/...` paths across scripts.
+- Resolve paths in code only through `config.yaml`, as `ROOT / cfg["paths"][...]`
+  with `ROOT` = project root. Do not hardcode `/data/...` paths in scripts.
 - This directory is a **standalone git repo** (initialized 2026-10-27, branch `main`,
   no remote yet), separate from `edge-ai`. Use the global commit prefixes
   (`docs:` `scripts:` `configs:` `exp:` `fix:` `chore:` `paper:`), one per commit.
@@ -115,6 +136,6 @@ train+dev paragraphs + the 10 paragraphs of each sampled HotpotQA question),
 
 ## Still in force from the global file
 
-Never delete from `/data/{models,datasets,runs,backups}` without explicit user
-confirmation · run folders are write-once · only `/data/scratch` is free to clear ·
-no secrets in files (use `.env`).
+Run folders are write-once · never delete models / datasets / runs without explicit
+user confirmation (now meaning the dirs inside this project) · no secrets in files
+(use a gitignored `.env`) · commit-prefix and tidiness rules.

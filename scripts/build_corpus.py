@@ -37,7 +37,7 @@ def sha256(path):
 
 def main():
     cfg = yaml.safe_load(open(ROOT / "config.yaml"))
-    ds = Path(cfg["paths"]["datasets"])
+    ds = ROOT / cfg["paths"]["datasets"]
     c = cfg["corpus"]
     out = ds / cfg["datasets"]["corpus"]
     if out.exists():

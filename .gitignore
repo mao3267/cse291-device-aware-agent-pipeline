@@ -6,7 +6,7 @@ venv/
 .env
 .envrc
 
-# Large binaries — these live in /data/models
+# Large binaries — these live in models/ and datasets/ (gitignored)
 *.gguf
 *.onnx
 *.safetensors
@@ -28,7 +28,10 @@ venv/
 .vscode/
 *.swp
 
-# Local run state (runs live in /data/runs)
+# Heavy local state — lives in this folder, never committed
+models/
+datasets/
+cache/
 runs/
 logs/
 scratch/

@@ -1,13 +1,12 @@
 # Single source of truth for paths. Scripts resolve everything through this file.
-paths:
-  data_root: /data
-  models: /data/models
-  datasets: /data/datasets
-  runs: /data/runs
-  scratch: /data/scratch
-  hf_home: /data/scratch/hf-cache   # download cache, safe to delete
+paths:                 # relative paths resolve against the project root
+  models: models
+  datasets: datasets
+  runs: runs
+  scratch: scratch
+  hf_home: cache/hf    # HF download cache, safe to delete
 
-python: /home/wuklab/ph1/bin/python
+python: .venv/bin/python
 
 models:
   embed: bge_small_en_v15_ov_fp16        # S1, BAAI/bge-small-en-v1.5
@@ -19,6 +18,7 @@ datasets:
   squad_raw: rag-squad/raw/plain_text
   hotpot_raw: rag-hotpotqa/raw/distractor
   corpus: rag-corpus/v1
+  index: rag-corpus-index/v1_bge-small-fp16_seq256   # built by scripts/build_index.py
 
 corpus:
   seed: 0
