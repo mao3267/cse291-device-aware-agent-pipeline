@@ -135,8 +135,9 @@ so nothing lands in `~/.cache/huggingface`.
     (1k prompt) 14.0 ms/token alone, 22.1 with NPU S2 rerank in a thread *or* a separate process, 14.2 with a
     tokenize-only thread, 15.2 with CPU rerank in a process. NPU S3 decode 18.6 → 31.5 ms/token with GPU rerank.
     The NPU aggressor slows too (4.4 it/s vs ≈5.8 alone). GPU + NPU running together is the costly pair.
-  - Analysis caveat: `breakdown_S3` groups NPU rows without MAX_PROMPT_LEN, so its NPU 256-prompt TTFT (233 ms)
-    mixes 384 and 4224 compiles — use the S3 table instead.
+  - `breakdown_S3` in this run's stored `analysis/` mixes NPU MAX_PROMPT_LEN 384 and 4224 (NPU 256-prompt
+    TTFT 233 ms is wrong). Fixed in `analyze_phase1.py` (2026-10-28, groups by mpl; verified on a scratch copy,
+    all other tables identical). The run folder is write-once, so its `analysis/` was not regenerated.
 - **Sequence length, padding and truncation (S1/S2), measured 2026-10-27 21:31** (ad-hoc check, not in
   a run folder; load avg 1.3). Encoders use static `[batch, seq]`, `padding="max_length"`, hard truncation
   (S2: `only_second`, so the passage is cut and the query is kept). Pad positions are fully computed.

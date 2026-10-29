@@ -61,7 +61,6 @@ Run folders (under `runs/`):
 | Deliverables: harness, profiles, policy, pipeline, analysis | ⚠️ | Harness + pipeline in `scripts/` (committed); profiles in run folders; policy and report not yet |
 
 ## Next steps (in order)
-1. Optional analysis fix: group `breakdown_S3` NPU rows by MAX_PROMPT_LEN (now mixes 384 and 4224 compiles).
-2. Phase 1 writeup (Nov 4): support matrix + placement evidence, per-stage profiles, memory, cold start,
+1. Phase 1 writeup (Nov 4): support matrix + placement evidence, per-stage profiles, memory, cold start,
    transfer breakdown, concurrency, contention cause, negative results, one line that energy was not measured.
-3. Phase 2: policy design on dev profiles → evaluate on HotpotQA + mixed workloads + concurrent load.
+2. Phase 2: policy design on dev profiles → evaluate on HotpotQA + mixed workloads + concurrent load.
