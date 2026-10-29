@@ -67,9 +67,9 @@ so nothing lands in `~/.cache/huggingface`.
   `~/.cache/ze_intel_npu_cache`; GPU kernel cache off with env `NEO_CACHE_PERSISTENT=0`.
 - **Zero-copy inputs**: `core.get_default_context(dev).create_host_tensor(...)` (GPU, NPU);
   `CompiledModel.get_context` does not exist in this OV build.
-- **Energy**: RAPL `/sys/class/powercap/intel-rapl:0/energy_uj` is root-only and `sudo` needs a password,
-  so energy is not measured. Code fills `energy_j` automatically once the user runs
-  `sudo chmod o+r /sys/class/powercap/intel-rapl:*/energy_uj` (resets at reboot). Package-level only.
+- **Energy: skipped (user decision, 2026-10-28)** — do not work on it unless the user asks. RAPL
+  `/sys/class/powercap/intel-rapl:0/energy_uj` is root-only and `sudo` needs a password; the harness
+  records `energy_j` (null) and would fill it if the file became readable. Package-level only.
 - `intel_gpu_top` does not work with the xe driver ("no i915 devices"); use fdinfo instead.
 
 ## Runtime rules

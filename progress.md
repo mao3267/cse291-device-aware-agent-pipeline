@@ -4,7 +4,7 @@ Spec: CSE 291A "Option 2: CPU/GPU/NPU-Aware Agent Pipelines" (Phase 1 due **Nov 
 report due **Dec 10**, 2026). This file tracks every requirement in the spec: status, evidence, and
 what is left. Update it together with `CLAUDE.md` whenever a run finishes or a gap closes.
 
-Status: ✅ done · 🔄 running / measured but not yet analyzed · ⚠️ partial · ❌ not started
+Status: ✅ done · 🔄 running / measured but not yet analyzed · ⚠️ partial · ❌ not started · ⏭️ skipped by decision
 
 Run folders (under `runs/`):
 - **P1** = `2026-10-27_155708_wuklab-NUC16_phase1` — stage sweeps + 9-mapping e2e (seq/overlap, 3 rounds).
@@ -28,7 +28,7 @@ Run folders (under `runs/`):
 | Initialization / compilation time | ✅/🔄 | `load_s` everywhere. P1 NPU numbers partly hit the driver cache | P1b true cold (NPU cache bypass, GPU `NEO_CACHE_PERSISTENT=0`) ×3 |
 | Data-transfer overhead | 🔄 | P1b: S1/S2 split into tokenize / set_input / infer / get_output, plus infer with zero-copy inputs (difference = plugin input copy); bytes handed between stages; S3 GenAI tokenize/infer/detokenize. Smoke test: S2 GPU input copy ≈ 13 ms of 107 ms; S2 tokenization 11–16 ms on every device | Analyze P1b |
 | Warm vs cold separated | ✅ | rep −1 = first run after compile; `load_s` separate | — |
-| Energy (only if reliable) | ❌ | RAPL `energy_uj` is root-only; `sudo` needs a password. Code records `energy_j` automatically once readable | User: `sudo chmod o+r /sys/class/powercap/intel-rapl:*/energy_uj` (resets at reboot), then re-run; else report "no reliable instrumentation" (package-level only) |
+| Energy (only if reliable) | ⏭️ skipped | **Out of scope by user decision (2026-10-28).** RAPL `energy_uj` is root-only and `sudo` needs a password. The harness still records `energy_j` (null) if it ever becomes readable | Report states energy was not measured (no reliable non-root instrumentation) |
 | Actual device placement / fallback | ✅/🔄 | S1/S2: `EXECUTION_DEVICES`, no fallback. **S3 now verified** (smoke test): GPU compute cycles only on GPU runs, NPU busy ≈ 96% of NPU S3 wall time, zero activity on CPU runs. P1b `placement` table covers all stage × device | Analyze P1b |
 | Support matrix | ✅ | `P1/analysis/support_matrix.csv`; P1b adds the activity-based placement column | — |
 | Profiles: which device under which condition | ⚠️ | Numbers exist (P1, S3R, seq-length check in CLAUDE.md) | Write the condition → device summary for the Phase 1 report |
@@ -63,5 +63,5 @@ Run folders (under `runs/`):
 ## Next steps (in order)
 1. When P1b finishes: read `P1b/analysis/summary.md`, check every 🔄 row above, update this file and `CLAUDE.md`.
 2. Phase 1 writeup (Nov 4): support matrix + placement evidence, per-stage profiles, memory, cold start,
-   transfer breakdown, concurrency, contention cause, negative results, energy statement.
+   transfer breakdown, concurrency, contention cause, negative results, one line that energy was not measured.
 3. Phase 2: policy design on dev profiles → evaluate on HotpotQA + mixed workloads + concurrent load.
