@@ -25,7 +25,7 @@ so nothing lands in `~/.cache/huggingface`.
 - Pipeline: `Query → S1 embed (bge-small-en-v1.5) → vector search → S2 rerank (bge-reranker-base) → S3 generate (Qwen2.5-1.5B-Instruct, 3B as sensitivity)`.
 - Goal: per-stage CPU / iGPU / NPU profiles (Phase 1), then a profile-driven
   stage→device mapping vs. single-device baselines and an exhaustive oracle (Phase 2).
-- Deadlines: **Phase 1 — Oct 28**, Phase 2 / final report — Dec 10 (2026).
+- Deadlines: **Phase 1 — Nov 4** (extended from Oct 28), Phase 2 / final report — Dec 10 (2026).
 
 ## Machine facts (verified 2026-10-27, supersede the global file)
 
@@ -45,7 +45,7 @@ so nothing lands in `~/.cache/huggingface`.
   Use `.venv/bin/python`; do not install into envs in `/data/envs/`.
   Moved from `/home/wuklab/ph1` on 2026-10-27 (shebangs + `pyvenv.cfg` rewritten;
   imports and `optimum-cli` verified). If it ever breaks, recreate it in place, not elsewhere.
-- Missing from ph1: `matplotlib` (needed for figures), `faiss-cpu` (optional —
+- Missing from `.venv`: `matplotlib` (needed for figures), `faiss-cpu` (optional —
   numpy brute force is enough at ~26k × 384), `evaluate` (EM/F1 can be hand-written).
   torch is the CUDA build (`+cu130`, ~3 GB wasted) — prefer CPU torch on rebuild.
 - llama.cpp: `/data/repos/llama.cpp/build-vulkan/bin` (Vulkan iGPU) and `build-cpu`.
@@ -77,6 +77,32 @@ so nothing lands in `~/.cache/huggingface`.
   CPU / iGPU / NPU with no fallback (EXECUTION_DEVICES checked); embeddings cos = 1.000
   vs CPU, reranker logits agree within 0.01. Compile: embed 0.4 / 0.7 / 1.2 s,
   rerank 2.9 / 3.7 / 3.7 s (CPU / GPU / NPU). NPU needs static shapes — reshape first.
+- **Phase 1 results (2026-10-27, FP16 encoders, INT4 LLM, OV 2026.4.1):**
+  - No silent fallback for S1/S2 (EXECUTION_DEVICES). S1 is negligible (2–8 ms at batch 1).
+  - S2 rerank (seq 256), warm median: 10 cands CPU 1071 / GPU 72 / NPU 82 ms; 100 cands CPU 10.3 s /
+    GPU 519 ms / **NPU 14.2 s with a 21-min compile** (50 cands: 242 s compile). NPU breaks down at large shapes.
+  - S2 on NPU changes rerank order: recall@3 0.83 vs 0.87, F1 0.34 vs 0.36 (GPU = CPU outputs exactly).
+  - S3 (fresh prompts): TTFT 256/1k/4k tok — GPU 39/146/669 ms, NPU 374/785/2578, CPU 814/2988/13634;
+    decode GPU 69–76 tok/s, NPU 47–58, CPU 40–57. GenAI prefix cache makes repeated prompts look instant
+    on CPU/GPU — always vary prompts when measuring TTFT.
+  - e2e (dev, 20 cands, top-3): best sequential = all-GPU 2.23 q/s, median 437 ms/query. Best overlap =
+    S2 on NPU + S3 on GPU, 2.50 q/s (+5% vs all-GPU overlap 2.38) at the cost of the recall/F1 drop above.
+    S2 on CPU caps at ~0.4 q/s. Std across 3 rounds ≤ 0.01 q/s.
+  - NPU compile cache lives in `~/.cache/ze_intel_npu_cache` (system-managed); clear it to measure true NPU cold start.
+- **Sequence length, padding and truncation (S1/S2), measured 2026-10-27 21:31** (ad-hoc check, not in
+  a run folder; load avg 1.3). Encoders use static `[batch, seq]`, `padding="max_length"`, hard truncation
+  (S2: `only_second`, so the passage is cut and the query is kept). Pad positions are fully computed.
+  - S1 queries (seq 64): token length median 22 / max 39 (SQuAD dev), median 28 / max 61 (HotpotQA);
+    0% truncated, 54–65% of compute is padding. Batch=1 latency is overhead-bound on GPU/NPU
+    (GPU ~2.1 ms, NPU 1.8→2.4 ms, CPU 4.8→7.9 ms for seq 32→64). **Keep seq 64.**
+  - S2 pairs (seq 256), the real e2e candidates (100 dev q × 20): median 176, p90 267, **12.6% truncated,
+    30% of compute is padding**. Longest pair per query: median 313, so picking one shape per batch saves nothing.
+  - S2 latency, 20 cands, seq 128 / 192 / 256: CPU 994 / 1510 / 2044 ms, GPU 48 / 73 / 99 ms,
+    NPU 66 / 109 / 158 ms (NPU compile 27 s / 47 s at 128 / 192). Linear in seq with ~0 fixed cost per call
+    (NPU worse than linear), so padding waste ≈ the same share of S2 latency.
+  - Phase 1 keeps seq 256 on all devices for a fair comparison; report padding/truncation as a known property.
+  - S1 sweep `batch` = number of **queries** per call (dev questions, seq 64), not passages. The e2e pipeline
+    always runs S1 at batch 1; passages were embedded offline by `build_index.py` (not timed).
 - llama.cpp Vulkan, Qwen2.5-3B Q4_K_M: pp256 ≈ 377 t/s, tg32 ≈ 14.5 t/s.
 
 ## TODO before Phase 1 profiling
@@ -85,8 +111,18 @@ so nothing lands in `~/.cache/huggingface`.
 - [x] Export Qwen2.5-1.5B to INT4 symmetric OV IR; NPU now correct.
 - [ ] Export Qwen2.5-3B INT4 sym (needs ~6 GB of source weights in the HF cache — free disk first).
 - [x] Fetch Wikipedia passages, SQuAD v1.1, HotpotQA → `rag-corpus/v1`.
-- [ ] Install matplotlib in ph1 (vector index: numpy brute force).
-- [ ] Pipeline runner, support matrix, Phase 1 sweeps.
+- [ ] Install matplotlib in `.venv` (vector index: numpy brute force).
+- [x] Passage index `datasets/rag-corpus-index/v1_bge-small-fp16_seq256` (`scripts/build_index.py`).
+- [x] Pipeline runner + harness (`scripts/harness.py`), smoke-tested on all three devices.
+- [x] Full Phase 1 matrix: `runs/2026-10-27_155708_wuklab-NUC16_phase1/` (15:57–18:28), analysis in its
+  `analysis/` (read `analysis/NOTES.md` first). S3 sweep re-done with fresh prompts per rep:
+  `runs/2026-10-27_182944_wuklab-NUC16_phase1-s3-fresh-prompts/`.
+  Design decision (user, 2026-10-27): **S3 fixed on iGPU** for e2e; e2e = 9 mappings
+  (S1, S2 ∈ CPU/GPU/NPU; S3=GPU) × sequential/overlap × 3 interleaved rounds + all-CPU/all-NPU refs.
+- [ ] Phase 1 writeup (due Nov 4).
+- [ ] Phase 2 idea: S2 length-bucketed sub-batches — sort the 20 candidates by length, split into
+  2–3 sub-batches with pre-compiled static shapes (e.g. 128 + 256). Up to ~30% less S2 time, NPU-compatible;
+  cost = extra compiles per shape. Re-run the seq check in a proper run folder before reporting numbers.
 
 ## Paths
 
@@ -126,6 +162,11 @@ on 2026-10-27 (same filesystem, plain `mv`; contents unchanged).
 |---|---|
 | `config.yaml` | All paths (absolute, all under `/data/project-01`), model names, dataset locations, corpus params. Scripts read only this. |
 | `scripts/build_corpus.py` | Raw SQuAD/HotpotQA → `rag-corpus/<ver>`. Refuses to overwrite. |
+| `scripts/rag_common.py` | Shared pipeline code: config loading, static-shape encoders (S1/S2), numpy index, LLM (S3), EM/F1, `new_run_dir()`. Each model is loaded once on one device. |
+| `scripts/build_index.py` | Embeds every corpus passage (`title: text`, seq 256, CLS+L2) → `datasets/<index>/` (`emb.npy`, `pids.npy`, `manifest.json`). Refuses to overwrite. |
+| `scripts/harness.py` | `stage S1/S2/S3` sweeps and `e2e --map S1=..,S2=..,S3=.. [--overlap]`. JSONL rows with env info (load avg, free mem) and `EXECUTION_DEVICES`; rep −1 = cold. Default `--out` is `scratch/`. |
+| `scripts/run_phase1.sh` | Full Phase 1 matrix into a new `runs/<date>_<host>_phase1/` with config, git rev, pip freeze. |
+| `scripts/smoke.py` | Support-matrix smoke test (dummy inputs). |
 
 - Resolve paths in code only through `config.yaml` (`cfg["paths"][...]`, `cfg["python"]`).
   Do not hardcode `/data/...` paths in scripts. Every path in `config.yaml` must
@@ -140,3 +181,12 @@ on 2026-10-27 (same filesystem, plain `mv`; contents unchanged).
 Run folders are write-once · never delete models / datasets / runs without explicit
 user confirmation (now meaning the dirs inside this project) · no secrets in files
 (use a gitignored `.env`) · commit-prefix and tidiness rules.
+
+## Home-dir cleanup (2026-10-27)
+
+Files an earlier session left in `/home/wuklab` were moved into the project:
+`runs/2026-10-27_145900_wuklab-NUC16_smoke-fp32-encoders/` (first support-matrix
+smoke test; FP32 encoders, see its README) and
+`scratch/home-leftovers-2026-10-27/` (duplicate model exports ~2.1 GB, an older
+11,836-passage corpus, old harness code). That scratch folder was deleted on
+2026-10-27 with user confirmation (superseded; freed ~2.1 GB).
