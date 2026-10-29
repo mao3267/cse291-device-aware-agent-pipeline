@@ -159,9 +159,10 @@ if "active_gpu_cycles" in st:
               "input_transfer_est = infer − infer with zero-copy inputs")
     s3 = warm[(warm.stage == "S3")]
     if len(s3) and "infer_ms" in s3:
-        table(s3.groupby(["device", "prompt_len", "out_len"])[
+        table(s3.groupby(["device", "mpl", "prompt_len", "out_len"])[
             ["ttft_ms", "tpot_ms", "tokenize_ms", "infer_ms", "detokenize_ms", "wall_s"]].median(),
-            "breakdown_S3", "S3 breakdown from GenAI perf metrics (warm medians, ms; wall in s)")
+            "breakdown_S3", "S3 breakdown from GenAI perf metrics (warm medians, ms; wall in s; "
+            "mpl = NPU MAX_PROMPT_LEN, 0 = n/a)")
     if st.get("energy_j") is not None and st.energy_j.notna().any():
         en = warm.groupby(["stage", "device"]).agg(energy_j_med=("energy_j", "median"),
                                                    window_ms=("window_ms", "median"))
