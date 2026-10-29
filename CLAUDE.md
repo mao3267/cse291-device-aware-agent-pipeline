@@ -109,19 +109,34 @@ so nothing lands in `~/.cache/huggingface`.
     S2 on CPU caps at ~0.4 q/s. Std across 3 rounds ≤ 0.01 q/s.
   - NPU compile cache lives in `~/.cache/ze_intel_npu_cache` (system-managed); P1 NPU load_s values partly hit
     it. Measure true cold start with `--cold` (bypass), not by deleting the cache.
-- **Supplement smoke tests (2026-10-28 ~21:20, scratch only — confirm with the P1b run before reporting):**
-  - **S3 placement verified**: GPU runs show GPU compute cycles and 0 NPU busy; NPU runs show NPU busy ≈ 96% of
-    wall time and 0 GPU cycles; CPU runs show neither. Same holds for S1/S2 (NPU busy ≈ 87–90% of latency).
-  - **NPU S3 TTFT depends on the compiled MAX_PROMPT_LEN**, not the prompt: 256-token prompt → 99 ms with
-    MAX_PROMPT_LEN 384 vs 374 ms with 4224 (P1). P1b compiles one NPU pipeline per prompt length to measure it.
-  - **Overlap slowdown is shared-memory contention, not the GIL**: GPU S3 decode (1k prompt) 14.0 ms/token alone,
-    22.1 with S2 rerank looping on the NPU — same in a thread or a separate process; a tokenize-only thread
-    (GIL, no accelerator work) gives 14.2. NPU rerank also slows (≈4.6 it/s vs ≈5.6 alone, from its 178 ms latency).
-  - Host-side cost in S2: tokenization 11–16 ms per 20 pairs on every device (~10% of GPU S2); GPU plugin input
-    copy ≈ 13 ms of 107 ms (zero-copy inputs: 94 ms); NPU input copy ≈ 0. S1 copies are < 1 ms.
-  - Model memory (load peak − baseline): S2 GPU ≈ 818 MB GTT, S2 NPU ≈ 726 MB NPU mem, S3 GPU ≈ 1.0 GB GTT,
-    S3 NPU ≈ 1.35 GB NPU mem (+1.9 GB RSS during compile), S1 ≈ 67–130 MB device memory.
-  - Data handed between stages per query: query vector 1.5 KB, 20 candidate texts ≈ 7 KB, prompt ≈ 2.5 KB.
+- **Phase 1 supplement (P1b) `runs/2026-10-28_212940_wuklab-NUC16_phase1-supplement/` (21:29–22:46, no errors;
+  read `analysis/summary.md`).** Confirms the 21:20 smoke tests:
+  - **Placement verified for every stage × device** (`placement.csv`): GPU runs show GPU compute cycles and 0 NPU
+    busy; NPU runs show NPU busy = 91–95% of latency and 0 GPU cycles; CPU runs show neither. S3 included.
+  - **True cold start** (`--cold`, 3 rounds, spread ≤ 0.3 s) vs warm-cache load_s: S1 GPU 1.0 vs 0.44 s, NPU 1.0 vs
+    0.07 s; S2 GPU 3.8 vs 3.1 s, **NPU 68 vs 0.12 s**; S3 GPU 3.0 vs 1.6 s, **NPU 10.8 vs 4.9 s** (MAX_PROMPT_LEN 1152).
+    CPU has no compile cache (S1 0.39, S2 3.3, S3 0.67 s either way). Uncached NPU S2 at 50 cands: 241 s.
+  - **NPU S3 TTFT depends on the compiled MAX_PROMPT_LEN**: 256-token prompt 99.6 ms at 384 vs 366 ms at 4224;
+    1k prompt 771 vs 779 ms. Decode tpot does not change. NPU S3 memory grows with it: 1.35 / 1.89 / 2.03 GB at
+    384 / 1152 / 4224.
+  - **Model memory** (load peak − baseline, `memory_load.csv`): S1 32–130 MB GTT / 67–91 MB NPU; S2 GPU 0.6–1.3 GB
+    GTT (grows with cands; 2.0 GB run peak at 100), S2 NPU 0.63 / 0.73 / 0.98 GB at 10 / 20 / 50 cands (+1.7–3.2 GB
+    RSS during an uncached compile); S3 GPU 1.0 GB GTT; S3 CPU 0.13 GB RSS at load, 3.0–3.7 GB run peak.
+    Whole e2e process: 1.7–2.4 GB RSS; system used ≈ 24–25 GB of 96 (others' processes included).
+  - **Transfer is small on shared DRAM**: GPU S2 plugin input copy 3–13 ms (≤ 10% of S2), NPU and S1 < 0.4 ms.
+    S2 tokenization is the larger host cost: 8–35 ms (10–15% of GPU S2). S3 tokenize/detokenize < 2 ms.
+    Data handed between stages per query: query vector 1.5 KB, 20 candidate texts 14.6 KB, prompt 2.4 KB.
+  - **Concurrency** (`e2e_concurrency.csv`, 100 dev q, 2 rounds): capacity all-GPU 2.38 q/s (closed c=2/4),
+    S1=NPU,S2=NPU,S3=GPU 2.49 q/s (but 1.75 q/s at c=1). Light load (Poisson 1 q/s): all-GPU wins (p50 638 vs
+    725 ms). Heavy load (2–2.3 q/s): S2 on NPU wins (p50 1171 vs 1261, 1714 vs 1863 ms) — a load-dependent
+    placement, i.e. a Phase 2 policy input. S1 on NPU ≈ S1 on GPU everywhere. 2.3 q/s exceeds capacity
+    (queues grow; back-stage wait ~1 s).
+  - **Overlap slowdown is shared-memory contention, not the GIL** (3 rounds, `contention.csv`): GPU S3 decode
+    (1k prompt) 14.0 ms/token alone, 22.1 with NPU S2 rerank in a thread *or* a separate process, 14.2 with a
+    tokenize-only thread, 15.2 with CPU rerank in a process. NPU S3 decode 18.6 → 31.5 ms/token with GPU rerank.
+    The NPU aggressor slows too (4.4 it/s vs ≈5.8 alone). GPU + NPU running together is the costly pair.
+  - Analysis caveat: `breakdown_S3` groups NPU rows without MAX_PROMPT_LEN, so its NPU 256-prompt TTFT (233 ms)
+    mixes 384 and 4224 compiles — use the S3 table instead.
 - **Sequence length, padding and truncation (S1/S2), measured 2026-10-27 21:31** (ad-hoc check, not in
   a run folder; load avg 1.3). Encoders use static `[batch, seq]`, `padding="max_length"`, hard truncation
   (S2: `only_second`, so the passage is cut and the query is kept). Pad positions are fully computed.
@@ -154,9 +169,7 @@ so nothing lands in `~/.cache/huggingface`.
   (S1, S2 ∈ CPU/GPU/NPU; S3=GPU) × sequential/overlap × 3 interleaved rounds + all-CPU/all-NPU refs.
 - [x] Harness extended (2026-10-28): memory peaks, activity-based placement, S1/S2 transfer breakdown,
   `--cold`, closed/Poisson arrivals, `contend` (GIL vs memory contention). Smoke-tested on all devices.
-- [ ] **Running**: `runs/2026-10-28_212940_wuklab-NUC16_phase1-supplement/` (`scripts/run_phase1b.sh`, started
-  21:29, ~1.5–2 h, analysis runs at the end). When done: read its `analysis/summary.md`, update
-  `progress.md` and the findings above.
+- [x] Phase 1 supplement: `runs/2026-10-28_212940_wuklab-NUC16_phase1-supplement/` (findings above).
 - [ ] Phase 1 writeup (due Nov 4).
 - [ ] Phase 2 idea: S2 length-bucketed sub-batches — sort the 20 candidates by length, split into
   2–3 sub-batches with pre-compiled static shapes (e.g. 128 + 256). Up to ~30% less S2 time, NPU-compatible;
