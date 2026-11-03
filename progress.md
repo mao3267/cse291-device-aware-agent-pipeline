@@ -61,5 +61,5 @@ Run folders (under `runs/`):
 | Deliverables: harness, profiles, policy, pipeline, analysis | ⚠️ | Harness + pipeline in `scripts/` (committed); profiles in run folders; Phase 1 report `paper/merged/phase1_report.{tex,pdf}`; policy not yet |
 
 ## Next steps (in order)
-1. Phase 1 writeup (Nov 4): merged draft done (`paper/merged/`, 9 pages, commit c68b968); team review and final page budget left.
+1. Phase 1 writeup (Nov 4): merged draft done (`paper/merged/`, 6 pages); team review and final page budget left.
 2. Phase 2: policy design on dev profiles → evaluate on HotpotQA + mixed workloads + concurrent load.
