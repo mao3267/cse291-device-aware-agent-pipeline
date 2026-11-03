@@ -58,7 +58,7 @@ Run folders (under `runs/`):
 | Model / precision matched across devices | ✅ | Same IRs and shapes on every device; 3B kept separate |
 | Negative results | ✅ | NPU S2 breaks at large shapes (100 cands: 14 s, 21-min compile); NPU changes rerank order; overlap on one device gives ~no gain |
 | Causes of device differences | ✅ | GenAI prefix cache, NPU compile, padding waste, NPU MAX_PROMPT_LEN (TTFT 99.6 vs 366 ms), and **shared-memory contention, not the GIL** (P1b, 3 rounds: GPU decode 14.0 → 22.1 ms/token with NPU rerank in a thread or a process, 14.2 with a tokenize-only thread, 15.2 with CPU rerank; NPU decode 18.6 → 31.5 with GPU rerank) |
-| Deliverables: harness, profiles, policy, pipeline, analysis | ⚠️ | Harness + pipeline in `scripts/` (committed); profiles in run folders; Phase 1 report `paper/merged/phase1_report.{tex,pdf}` (current; `paper/phase1_report.*` is the superseded first draft); policy not yet |
+| Deliverables: harness, profiles, policy, pipeline, analysis | ⚠️ | Harness + pipeline in `scripts/` (committed); profiles in run folders; Phase 1 report `paper/merged/phase1_report.{tex,pdf}`; policy not yet |
 
 ## Next steps (in order)
 1. Phase 1 writeup (Nov 4): merged draft done (`paper/merged/`, 9 pages, commit c68b968); team review and final page budget left.
