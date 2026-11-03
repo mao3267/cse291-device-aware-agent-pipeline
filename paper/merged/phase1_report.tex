@@ -21,7 +21,7 @@ Our project asks where each stage of an edge RAG pipeline should run on a machin
 
 \textbf{Main findings.}
 \begin{itemize}\setlength\itemsep{0pt}
-\item All 9 stage$\times$device combinations run, and a placement check (GPU cycle counters, NPU busy time) confirms nothing silently falls back to another device.
+\item All 9 stage$\times$device combinations run.
 \item The iGPU is the fastest device for S2 and S3 at every size we measured. The NPU is competitive only for small encoder inputs (S1 batch 1; S2 with 10 candidates) and degrades sharply for larger shapes. The CPU is 15--20$\times$ slower for S2 and for S3 prefill.
 \item End to end, all stages on the iGPU is best for latency, throughput up to $\sim$2.4 queries/s, and answer quality. Moving S2 to the NPU adds 110--140\,ms per query when S3 is on the iGPU or CPU (nothing when S3 is also on the NPU), lowers recall@3 from 0.87 to 0.82--0.83, and gives at most a few percent more capacity.
 \item Placing S1 on any device changes end-to-end latency by about 20\,ms or less; S1 is irrelevant to the decision.
@@ -29,7 +29,7 @@ Our project asks where each stage of an edge RAG pipeline should run on a machin
 \end{itemize}
 
 \section{Setup}
-\textbf{Machine.} One Intel Core Ultra 7 356H machine (16 cores, Arc iGPU, ``Intel AI Boost'' NPU, about 93\,GiB shared DRAM), Ubuntu 24.04, kernel 7.0, NPU driver 1.33.0. Runtime: OpenVINO 2026.4.1 and openvino-genai 2026.4.1.0, the only stack we found that covers CPU, iGPU and NPU. The machine is shared with other users' desktop sessions; load average was 1--8 during runs and is recorded in every result row.
+\textbf{Machine.} An Intel Core Ultra 7 356H (16-core CPU, Arc iGPU and NPU, sharing 96\,GB of DRAM) running OpenVINO 2026.4.1 with OpenVINO GenAI. The machine is shared with other users (load average 1--8 during runs).
 
 \textbf{Models.} S1 and S2 are FP16 OpenVINO exports with static shapes (S1 $[b,64]$, S2 $[k,256]$, padded and truncated), because the NPU requires static shapes; the same shapes are used on all devices. S3 is INT4 with symmetric, channel-wise weights; a first asymmetric export produced garbage on the NPU. Decoding is greedy, at most 32 new tokens in the pipeline.
 
@@ -39,33 +39,33 @@ Our project asks where each stage of an edge RAG pipeline should run on a machin
 
 \textbf{Harness modes.} (1) \emph{Stage sweeps}: S1 batch (1/8/32), S2 candidates (10/20/50/100, real candidates), S3 prompt (256/1k/4k) and output length (32/128/256). (2) \emph{End to end}: 100 questions under a fixed S1/S2/S3 mapping, sequential or overlapped, with per-stage times, EM/F1 and recall. (3) \emph{Load}: closed-loop clients (1/2/4) or Poisson arrivals (0.5--3 q/s); response time runs from arrival to completion. (4) \emph{Contention}: S3 decode while an S2 loop runs on another device, in a thread or in a separate process.
 
-\textbf{Instrumentation} (no root needed). \emph{Placement}: \texttt{EXECUTION\_DEVICES} for S1 and S2; for all stages, per-process DRM fdinfo (iGPU compute-engine cycles) and the global NPU busy counter, sampled around each measured call. \emph{Memory}: a 20\,ms sampler records peak process RSS, system memory, iGPU GTT memory and NPU memory; model footprint is the load peak minus the baseline. \emph{Transfer}: S1/S2 calls are split into tokenize, set input, infer and get output, and infer is repeated with zero-copy device-context tensors, so the difference estimates the plugin's input copy; S3 uses GenAI's tokenize/inference/detokenize durations. \emph{Cold start}: \texttt{NPU\_BYPASS\_UMD\_CACHING=YES} bypasses the NPU driver's compile cache and \texttt{NEO\_CACHE\_PERSISTENT=0} disables the iGPU kernel cache.
+\textbf{Instrumentation} (no root needed). \emph{Memory}: a 20\,ms sampler records peak process RSS, system memory, iGPU GTT memory and NPU memory; model footprint is the load peak minus the baseline. \emph{Transfer}: S1/S2 calls are split into tokenize, set input, infer and get output, and infer is repeated with zero-copy device-context tensors, so the difference estimates the plugin's input copy; S3 uses GenAI's tokenize/inference/detokenize durations. \emph{Cold start}: \texttt{NPU\_BYPASS\_UMD\_CACHING=YES} bypasses the NPU driver's compile cache and \texttt{NEO\_CACHE\_PERSISTENT=0} disables the iGPU kernel cache.
 
-\section{Support matrix and actual placement}
+\section{Support matrix}
 \begin{table}[tbp]\centering\small
-\caption{Support matrix (Phase 1b). Load = model load plus compile, with a warm compile cache / true cold. Activity evidence: iGPU cycles were zero on every non-iGPU run and NPU busy time was zero on every non-NPU run; ``busy'' is the share of the call's latency during which the NPU counter advanced.}\label{tab:support}
-\begin{tabular}{llllr}\toprule
-Stage & Device & Fallback & Activity evidence & Load (s)\\\midrule
-S1 & CPU & none & no iGPU/NPU activity & 0.39 / 0.39\\
- & iGPU & none & $8.8\times10^4$ cycles/call & 0.44 / 1.0\\
- & NPU & none & NPU busy 92\% & 0.07 / 1.0\\
-S2 & CPU & none & no iGPU/NPU activity & 3.3 / 3.3\\
- & iGPU & none & $3.6\times10^6$ cycles/call & 3.1 / 3.8\\
- & NPU$^a$ & none & NPU busy 91\% & 0.12 / 68\\
-S3 & CPU & none$^b$ & no iGPU/NPU activity & 0.67 / 0.67\\
- & iGPU & none$^b$ & $3.7\times10^7$ cycles/call & 1.6 / 3.0\\
- & NPU$^c$ & none$^b$ & NPU busy 95\% & 4.9 / 10.7\\\bottomrule
+\caption{Support matrix (Phase 1b). Load = model load plus compile, with a warm compile cache / true cold.}\label{tab:support}
+\begin{tabular}{llr}\toprule
+Stage & Device & Load (s)\\\midrule
+S1 & CPU & 0.39 / 0.39\\
+ & iGPU & 0.44 / 1.0\\
+ & NPU & 0.07 / 1.0\\
+S2 & CPU & 3.3 / 3.3\\
+ & iGPU & 3.1 / 3.8\\
+ & NPU$^a$ & 0.12 / 68\\
+S3 & CPU & 0.67 / 0.67\\
+ & iGPU & 1.6 / 3.0\\
+ & NPU$^b$ & 4.9 / 10.7\\\bottomrule
 \end{tabular}\\[2pt]
 \raggedright\footnotesize
-$^a$Static shapes only: 50 candidates take 241\,s to compile and 100 candidates 21\,min, then run at 14.2\,s per call (iGPU 0.52\,s). $^b$\texttt{LLMPipeline} does not report \texttt{EXECUTION\_DEVICES}, so placement rests on the activity counters. $^c$Needs symmetric INT4 weights (an asymmetric INT8 export compiles but generates garbage); load shown for a 1152-token maximum prompt.
+$^a$Static shapes only: 50 candidates take 241\,s to compile and 100 candidates 21\,min, then run at 14.2\,s per call (iGPU 0.52\,s). $^b$Needs symmetric INT4 weights (an asymmetric INT8 export compiles but generates garbage); load shown for a 1152-token maximum prompt.
 \end{table}
 
-All nine stage--device pairs run and the counters agree with the requested device in every case, so there is no silent CPU fallback, including for the LLM, where the runtime does not report placement. The NPU is the least flexible device: it needs static shapes, including a maximum prompt length for the LLM, and compile cost grows quickly with shape. The NPU compile cache hides this after the first load (reranker load 0.12\,s warm, 68\,s cold); iGPU cold loads cost only 0.5--1.4\,s more.
+All nine stage--device pairs run. The NPU is the least flexible device: it needs static shapes, including a maximum prompt length for the LLM, and compile cost grows quickly with shape. The NPU compile cache hides this after the first load (reranker load 0.12\,s warm, 68\,s cold); iGPU cold loads cost only 0.5--1.4\,s more.
 
 \section{Per-stage results}
 \begin{figure}[tbp]\centering
 \includegraphics[width=0.72\linewidth]{figs/fig_stage.pdf}
-\caption{Warm median latency of S1 and S2 (log--log), first Phase 1 sweep; Table~\ref{tab:s12} uses the placement-verified Phase 1b rerun, which agrees within a few percent except S1 on the iGPU at batch 1. S2 on the NPU needs 4 min (50 candidates) and 21 min (100 candidates) to compile.}\label{fig:stage}
+\caption{Warm median latency of S1 and S2 (log--log), first Phase 1 sweep; Table~\ref{tab:s12} uses the Phase 1b rerun, which agrees within a few percent except S1 on the iGPU at batch 1. S2 on the NPU needs 4 min (50 candidates) and 21 min (100 candidates) to compile.}\label{fig:stage}
 \end{figure}
 
 \begin{table}[tbp]\centering\small
@@ -90,7 +90,7 @@ NPU & 2.4 & 9.0 & 27.9 & 84 & 173 & 434 & 14200\\\bottomrule
 \textbf{S3.} Prefill is the large difference (Fig.~\ref{fig:s3}): at 1k tokens TTFT is 146\,ms on the iGPU, 771\,ms on the NPU and 2932\,ms on the CPU. Decode speed is 69--75 tokens/s on the iGPU, 47--58 on the NPU and 40--56 on the CPU; decode is memory-bandwidth bound, so the gap is much smaller than in prefill. On the iGPU, output length does not change TTFT or time per output token (TPOT 13.3--14.6\,ms), so total time is linear in output tokens. The NPU's TTFT depends on the compiled prompt limit rather than the real prompt: a 256-token prompt takes 99.6\,ms with \texttt{MAX\_PROMPT\_LEN}=384 but 366\,ms with 4224, and larger limits also use more device memory (Table~\ref{tab:cost}).
 
 \begin{table}[tbp]\centering\small
-\caption{Cost beyond latency (Phase 1b, placement-verified runs). Load time is the cold start with caches bypassed; memory is added by loading the model.}\label{tab:cost}
+\caption{Cost beyond latency (Phase 1b). Load time is the cold start with caches bypassed; memory is added by loading the model.}\label{tab:cost}
 \begin{tabular}{llrrp{4.2cm}}\toprule
 Stage & Device & Load (s) cached / cold & Memory (MB) & Notes\\\midrule
 S1 (b=1) & iGPU & 0.44 / 0.98 & 130 & \\
@@ -105,7 +105,7 @@ S3 & CPU & 0.7 / 0.7 & (host RAM) & \\\bottomrule
 
 An uncached NPU compile also needs 1.7--3.2\,GB of host RAM, and a whole end-to-end process uses 1.7--2.4\,GB of RSS, so memory is not a constraint on this machine, but the NPU LLM's footprint grows with its static prompt shape.
 
-\textbf{Data movement and placement.} Because the devices share DRAM, ``transfer'' is a host-side copy, not a bus crossing, and the payload between stages is small (per query: 1.5\,KB query vector, 14.6\,KB of candidate text, 2.4\,KB prompt). Input transfer is also cheap: the iGPU reranker's input copy is 3--13\,ms and the NPU's is under 0.4\,ms. Reranker tokenization (8--35\,ms, 10--15\% of iGPU S2) is a larger host-side cost; S3 tokenization and detokenization take under 2\,ms. The first inference after loading is also slower: 8--12\,ms extra for S1 on the iGPU, and up to 2$\times$ the warm latency for S2 on the NPU (199 versus 84\,ms at 10 candidates). On NPU runs the NPU is busy for 91--95\% of the latency; on iGPU runs only GPU cycles accumulate, so the labels in our tables are the devices that actually ran.
+\textbf{Data movement.} Because the devices share DRAM, ``transfer'' is a host-side copy, not a bus crossing, and the payload between stages is small (per query: 1.5\,KB query vector, 14.6\,KB of candidate text, 2.4\,KB prompt). Input transfer is also cheap: the iGPU reranker's input copy is 3--13\,ms and the NPU's is under 0.4\,ms. Reranker tokenization (8--35\,ms, 10--15\% of iGPU S2) is a larger host-side cost; S3 tokenization and detokenization take under 2\,ms. The first inference after loading is also slower: 8--12\,ms extra for S1 on the iGPU, and up to 2$\times$ the warm latency for S2 on the NPU (199 versus 84\,ms at 10 candidates).
 
 \section{End-to-end results}
 \begin{figure}[tbp]\centering
