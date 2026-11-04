@@ -28,7 +28,7 @@ from pathlib import Path
 
 import numpy as np
 
-from rag_common import (CFG, Embedder, Reranker, Index, LLM, QUERY_PREFIX, ResourceMonitor,
+from rag_common import (CFG, Embedder, Reranker, Index, LLM, RemoteLLM, QUERY_PREFIX, ResourceMonitor,
                         counters, delta, load_passages, load_questions, model_path,
                         passage_text, qa_prompt, em_f1, env_info)
 
@@ -150,11 +150,13 @@ def e2e(a, w):
     idx = Index()
     emb = Embedder(m["S1"], batch=1, seq=64)
     rr = Reranker(m["S2"], batch=a.cands, seq=256)
-    llm = LLM(m["S3"], max_prompt_len=1024, min_response_len=64)
+    npu_other = m["S3"] == "NPU" and "NPU" in (m["S1"], m["S2"])
+    remote = a.s3_process == "always" or (a.s3_process == "auto" and npu_other)
+    llm = (RemoteLLM if remote else LLM)(m["S3"], max_prompt_len=a.max_prompt_len, min_response_len=64)
     qs = load_questions(a.split)[:a.n]
     mode = a.arrival or ("overlap" if a.overlap else "sequential")
     base = dict(exp="e2e", map=a.map, split=a.split, cands=a.cands, topn=a.topn,
-                overlap=a.overlap, round=a.round, mode=mode, clients=a.clients, rate=a.rate,
+                overlap=a.overlap, round=a.round, mode=mode, s3_process=remote, clients=a.clients, rate=a.rate,
                 exec={"S1": emb.exec_devices, "S2": rr.exec_devices},
                 load_s={"S1": emb.load_s, "S2": rr.load_s, "S3": llm.load_s},
                 **mon.take("load_peak_"), **env_info())
@@ -180,7 +182,7 @@ def e2e(a, w):
         r = llm.generate(prompt, max_new_tokens=32)
         em, f1 = em_f1(r["text"].strip(), q["answers"])
         w(dict(base, qi=i, qid=q["qid"], **times, s3_ms=r["wall_s"] * 1e3,
-               ttft_ms=r["ttft_ms"], tpot_ms=r["tpot_ms"], in_tokens=r["in_tokens"],
+               ttft_ms=r["ttft_ms"], tpot_ms=r["tpot_ms"], ipc_ms=r.get("ipc_ms"), in_tokens=r["in_tokens"],
                out_tokens=r["out_tokens"], e2e_ms=(time.perf_counter() - t0) * 1e3,
                em=em, f1=f1, pred=r["text"].strip()[:100]))
 
@@ -213,6 +215,8 @@ def e2e(a, w):
     w(dict(base, summary=True, n=len(qs), makespan_s=total, qps=len(qs) / total,
            **act, **mon.take(), **{f"end_{k}": v for k, v in env_info().items()}))
     mon.stop()
+    if remote:
+        llm.close()
 
 
 def run_arrival(a, qs, front, back):
@@ -362,6 +366,9 @@ if __name__ == "__main__":
     ap.add_argument("--split", default="dev")
     ap.add_argument("--n", type=int, default=100)
     ap.add_argument("--topn", type=int, default=3)
+    ap.add_argument("--s3-process", choices=["auto", "always", "never"], default="auto",
+                    help="e2e: run S3 in its own process (auto: when S3=NPU and S1 or S2 is also NPU)")
+    ap.add_argument("--max-prompt-len", type=int, default=1024, help="e2e: NPU MAX_PROMPT_LEN for S3 (raise for large --topn)")
     ap.add_argument("--overlap", action="store_true")
     ap.add_argument("--arrival", choices=["closed", "poisson"], default=None)
     ap.add_argument("--clients", type=int, default=1, help="closed-loop clients")

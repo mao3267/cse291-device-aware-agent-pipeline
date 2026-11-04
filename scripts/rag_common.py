@@ -4,7 +4,7 @@ Each model is loaded once on one device. Encoders are compiled with static
 shapes, and the same shapes are used on CPU, GPU, and NPU (NPU requires static
 shapes), so device comparisons are controlled. All paths come from config.yaml.
 """
-import collections, json, os, re, socket, string, time
+import atexit, collections, json, multiprocessing as mp, os, re, socket, string, time
 from pathlib import Path
 
 import numpy as np
@@ -194,6 +194,56 @@ class LLM:
                     tokenize_ms=m.get_tokenization_duration().mean,
                     infer_ms=m.get_inference_duration().mean,
                     detokenize_ms=m.get_detokenization_duration().mean)
+
+
+def _llm_worker(device, kwargs, q_in, q_out):
+    llm = LLM(device, **kwargs)
+    q_out.put(("ready", llm.load_s))
+    while (job := q_in.get()) is not None:
+        try:
+            q_out.put(("ok", llm.generate(*job[0], **job[1])))
+        except Exception as e:
+            q_out.put(("err", repr(e)))
+
+
+class RemoteLLM:
+    """LLM in its own process, same interface as LLM. Needed when S3 is on the NPU
+    together with another NPU model: in one process, the second NPU model compiled
+    invalidates the first one (L0 zeMemAllocHost INVALID_NULL_HANDLE, 2026-11-01).
+    Adds one queue round trip per call, recorded as ipc_ms."""
+
+    def __init__(self, device, **kwargs):
+        ctx = mp.get_context("spawn")
+        self.q_in, self.q_out, self.device = ctx.Queue(), ctx.Queue(), device
+        self.proc = ctx.Process(target=_llm_worker, args=(device, kwargs, self.q_in, self.q_out),
+                                daemon=True)
+        self.proc.start()
+        self.load_s = self._get()
+        atexit.register(self.close)
+
+    def _get(self):
+        while True:
+            try:
+                tag, val = self.q_out.get(timeout=5)
+            except Exception:
+                if not self.proc.is_alive():
+                    raise RuntimeError("LLM worker process died")
+                continue
+            if tag == "err":
+                raise RuntimeError(val)
+            return val
+
+    def generate(self, prompt, max_new_tokens=32, ignore_eos=False):
+        t = time.perf_counter()
+        self.q_in.put(((prompt,), dict(max_new_tokens=max_new_tokens, ignore_eos=ignore_eos)))
+        r = self._get()
+        r["ipc_ms"] = (time.perf_counter() - t) * 1e3 - r["wall_s"] * 1e3
+        return r
+
+    def close(self):
+        if self.proc.is_alive():
+            self.q_in.put(None)
+            self.proc.join(timeout=30)
 
 
 def qa_prompt(question, passages):
