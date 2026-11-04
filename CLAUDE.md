@@ -171,7 +171,7 @@ so nothing lands in `~/.cache/huggingface`.
 - [x] Harness extended (2026-10-28): memory peaks, activity-based placement, S1/S2 transfer breakdown,
   `--cold`, closed/Poisson arrivals, `contend` (GIL vs memory contention). Smoke-tested on all devices.
 - [x] Phase 1 supplement: `runs/2026-10-28_212940_wuklab-NUC16_phase1-supplement/` (findings above).
-- [ ] Phase 1 writeup (due Nov 4).
+- [x] Phase 1 writeup (due Nov 4): `paper/phase1_4page/`.
 - [ ] Phase 2 idea: S2 length-bucketed sub-batches — sort the 20 candidates by length, split into
   2–3 sub-batches with pre-compiled static shapes (e.g. 128 + 256). Up to ~30% less S2 time, NPU-compatible;
   cost = extra compiles per shape. Re-run the seq check in a proper run folder before reporting numbers.
@@ -220,6 +220,10 @@ on 2026-10-27 (same filesystem, plain `mv`; contents unchanged).
 | `scripts/run_phase1.sh` | Full Phase 1 matrix into a new `runs/<date>_<host>_phase1/` with config, git rev, pip freeze. |
 | `scripts/run_s3_rerun.sh` | S3 sweep with a fresh prompt per rep (fixes the prefix-cache issue of the first run). |
 | `scripts/run_phase1b.sh` | Phase 1 supplement: monitored stage sweeps, NPU per-prompt compiles, true cold ×3, concurrency, contention; runs the analysis at the end. |
+| `scripts/run_phase1c.sh` | Phase 1c: RAG top-N, the remaining mappings, Poisson load sweep. Optional `START_AT=HH:MM`. |
+| `scripts/run_phase1d.sh` | Phase 1d: S3-on-NPU mappings with S3 in its own process, plus the in-process control. |
+| `scripts/analyze_phase1c.py` | `RUN_DIR [EXTRA_RUN ...]` → `RUN_DIR/analysis/` (coverage, top-N, load tables, `fig_load.png`). |
+| `README.md` | Public overview: results, setup, how to run. |
 | `scripts/analyze_phase1.py` | `RUN_DIR` → `RUN_DIR/analysis/` (summary.md, CSVs, figures). New sections appear only when a run has the new columns, so old runs still analyze. |
 | `progress.md` | Spec requirement checklist: status, evidence, remaining work. |
 | `scripts/smoke.py` | Support-matrix smoke test (dummy inputs). |
@@ -227,8 +231,9 @@ on 2026-10-27 (same filesystem, plain `mv`; contents unchanged).
 - Resolve paths in code only through `config.yaml` (`cfg["paths"][...]`, `cfg["python"]`).
   Do not hardcode `/data/...` paths in scripts. Every path in `config.yaml` must
   point inside `/data/project-01/`.
-- This directory is a **standalone git repo** (initialized 2026-10-27, branch `main`,
-  no remote yet), separate from `edge-ai`. Use the global commit prefixes
+- This directory is a **standalone git repo** (initialized 2026-10-27, branch `main`),
+  separate from `edge-ai`. Public remote: `github.com/mao3267/cse291-device-aware-agent-pipeline`.
+  The checkout on the lab machine has no remote configured. Use the global commit prefixes
   (`docs:` `scripts:` `configs:` `exp:` `fix:` `chore:` `paper:`), one per commit.
   Local author is set to `chenvincent610 <chenvincent610@gmail.com>`.
 
@@ -246,3 +251,36 @@ smoke test; FP32 encoders, see its README) and
 `scratch/home-leftovers-2026-10-27/` (duplicate model exports ~2.1 GB, an older
 11,836-passage corpus, old harness code). That scratch folder was deleted on
 2026-10-27 with user confirmation (superseded; freed ~2.1 GB).
+
+## Phase 1c (planned 2026-11-01, starts 17:00 PST)
+
+`scripts/run_phase1c.sh` fills gaps in Phase 1/1b: (A) RAG prompt size, top-1 and top-8
+passages (`harness.py e2e --topn N --max-prompt-len L`, new flag, default 1024 keeps old
+behaviour; top-8 prompts are ~1.4-1.6k tokens, use 3072 for S3=NPU); (B) the 18 mappings
+with S3 on CPU/NPU, so all 27 are covered; (C) Poisson load sweep up to and past capacity
+for 4 mappings, 3 interleaved rounds, plus closed-loop clients for the two S3=NPU
+mappings. Run folder `runs/<date>_<host>_phase1c-load-coverage/` (analysis via
+`scripts/analyze_phase1c.py RUN [EXTRA_RUN ...]`, merge the Phase 1 run for the 27-row
+table). Expected ~4-5 h. Another project (project-04, fleetserve) was using CPU on this
+machine when it was planned; check `env_start.txt` / per-row load1 before trusting numbers.
+
+## NPU: two models in one process break (found 2026-11-02)
+
+Phase 1c: any e2e mapping with S3 (LLMPipeline) on the NPU and S1 or S2 also on the NPU failed
+with L0 zeMemAllocHost ZE_RESULT_ERROR_INVALID_NULL_HANDLE at the first inference: whichever
+NPU model was loaded first is invalidated by the second (either order; two NPU encoders
+together are fine; NPU_BYPASS_UMD_CACHING does not help; the Phase 1 code snapshot fails the
+same way now, though all-NPU ran on 2026-10-27 -- cause of the change unknown, OpenVINO
+2026.4.1 and the NPU driver 1.33.0 (May) are unchanged). Workaround: S3 in its own process
+(rag_common.RemoteLLM, harness e2e --s3-process auto|always|never, default auto = when S3=NPU
+and S1/S2 also NPU); adds a queue round trip, recorded as ipc_ms. Re-run: scripts/run_phase1d.sh
+(START_AT=08:00 on 2026-11-02). Phase 1 all-NPU reference (S3 in-process) is not reproducible.
+
+## Phase 1 report (2026-11-02)
+
+The current report is `paper/phase1_4page/phase1_report.{tex,pdf}` (4 pages), built from the 5-page
+draft below: it adds recall@3/F1 to the e2e table and the top-N quality result, merges the support and
+cost tables, and drops the S1/S2 figure. The 5-page draft is `paper/merged/phase1_report.{tex,pdf}`
+(figs in paper/merged/figs/), committed c68b968. It merges Jonas's draft with the first draft (methodology, support matrix, device-preference
+table), with numbers checked against the run data; Table 2 and S3 text use P1b. The first draft
+`paper/phase1_report.*` and `paper/fig/` were removed in cf32de6 (recoverable from git).
