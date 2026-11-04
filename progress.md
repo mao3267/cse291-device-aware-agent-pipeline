@@ -31,7 +31,7 @@ Run folders (under `runs/`):
 | Energy (only if reliable) | ⏭️ skipped | **Out of scope by user decision (2026-10-28).** RAPL `energy_uj` is root-only and `sudo` needs a password. The harness still records `energy_j` (null) if it ever becomes readable | Report states energy was not measured (no reliable non-root instrumentation) |
 | Actual device placement / fallback | ✅ | S1/S2: `EXECUTION_DEVICES`, no fallback. P1b `placement.csv`: every stage × device ran where asked (GPU cycles only on GPU, NPU busy 91–95% of latency only on NPU, neither on CPU), S3 included | — |
 | Support matrix | ✅ | `P1/analysis/support_matrix.csv`; P1b adds the activity-based placement column | — |
-| Profiles: which device under which condition | ✅ | Device-preference table in `paper/merged/phase1_report.tex` (Table 8) | — |
+| Profiles: which device under which condition | ✅ | Device-preference table in `paper/phase1_4page/phase1_report.tex` (Table 5) | — |
 
 ## Phase 2 — profile-driven placement
 
@@ -58,8 +58,8 @@ Run folders (under `runs/`):
 | Model / precision matched across devices | ✅ | Same IRs and shapes on every device; 3B kept separate |
 | Negative results | ✅ | NPU S2 breaks at large shapes (100 cands: 14 s, 21-min compile); NPU changes rerank order; overlap on one device gives ~no gain |
 | Causes of device differences | ✅ | GenAI prefix cache, NPU compile, padding waste, NPU MAX_PROMPT_LEN (TTFT 99.6 vs 366 ms), and **shared-memory contention, not the GIL** (P1b, 3 rounds: GPU decode 14.0 → 22.1 ms/token with NPU rerank in a thread or a process, 14.2 with a tokenize-only thread, 15.2 with CPU rerank; NPU decode 18.6 → 31.5 with GPU rerank) |
-| Deliverables: harness, profiles, policy, pipeline, analysis | ⚠️ | Harness + pipeline in `scripts/` (committed); profiles in run folders; Phase 1 report `paper/merged/phase1_report.{tex,pdf}`; policy not yet |
+| Deliverables: harness, profiles, policy, pipeline, analysis | ⚠️ | Harness + pipeline in `scripts/` (committed); profiles in run folders; Phase 1 report `paper/phase1_4page/phase1_report.{tex,pdf}` (5-page draft in `paper/merged/`); policy not yet |
 
 ## Next steps (in order)
-1. Phase 1 writeup (Nov 4): merged draft done (`paper/merged/`, 5 pages incl. timeline appendix); team review and final page budget left.
+1. Phase 1 writeup (Nov 4): 4-page version in `paper/phase1_4page/`, built from the 5-page `paper/merged/` draft (adds recall@3/F1 to the e2e table and top-N quality); team review left.
 2. Phase 2: policy design on dev profiles → evaluate on HotpotQA + mixed workloads + concurrent load.
